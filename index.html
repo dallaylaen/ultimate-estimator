@@ -1,0 +1,284 @@
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <title>The ultimate task estimator - jRna examples</title>
+    <script lang="javascript" src="js/3rd-party/jquery.js"></script>
+    <script lang="javascript" src="js/jrna.js"></script>
+    <script lang="javascript" id="description">
+        const descr = {"title":"The ultimate task estimator - jRna examples"}
+    </script>
+    <script lang="javascript">
+        window.onerror = function(msg) {
+            document.getElementById("error").innerHTML += '<div>'+msg+'</div>';
+        };
+    </script>
+    <style>
+        .indent {
+            padding-left: 1em;
+            border-left: blue 1px solid;
+        }
+        .jrna-title {
+            font-weight: bold;
+            font-size: 110%;
+            color: green;
+        }
+        .control {
+            text-decoration: none;
+            color: grey;
+        }
+        .number {
+            background-color: #3366cc;
+            border-radius: 0.3em;
+            padding-right: 0.5em;
+            padding-left: 0.5em;
+            color: #FFFFFF;
+            font-weight: bold;
+        }
+        .done .jrna-title {
+            color: grey;
+        }
+        .done .number {
+            background-color: grey;
+        }
+    </style>
+</head>
+<body>
+    <div id="error" style="color: red"></div>
+    <h1>The ultimate task estimator - jRna examples</h1>
+
+    <!-- initial node to attach to -->
+    <div id="root">
+        <a href="#download" class="jrna-download">Download</a>
+        <input type="file" class="jrna-upload">
+    </div>
+
+    <div id="library" style="display: none">
+        <div class="task">
+            <div class="header jrna-header">
+                <a href="#" class="control jrna-toggle">[-]</a>
+                <input type="checkbox" class="jrna-done">
+                <span class="number jrna-display">...</span>
+                <span class="jrna-title"></span>
+                <a href="#" class="control jrna-edit">[edit]</a>
+                <a href="#" class="control jrna-estimate">[estimate]</a>
+                <a href="#" class="control jrna-split">[split]</a>
+                <a href="#" class="control jrna-remove">[x]</a>
+            </div>
+            <div class="indent jrna-content">
+                <div class="jrna-children">
+                </div>
+                <div>
+                    <a class="control jrna-add" href="#">[add subtask...]</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="editor">
+            <input class="jrna-value">
+            <a href="#save" class="control jrna-save">[save]</a>
+            <a href="#dismiss" class="control jrna-dismiss">[x]</a>
+            <div class="control jrna-comment"></div>
+        </div>
+    </div>
+
+    <!-- the script is here -->
+    <script lang="javascript" id="main">
+        "use strict";
+
+        const editor = new jRna()
+            .htmlFrom('#library .editor')
+            .args( 'onSave', 'onClose', 'value', 'size', 'comment' )
+            .output( 'comment' )
+            .input( 'value' )
+            .def( 'save', function() {
+                this.onSave( this.value );
+                this.remove();
+            })
+            .click('save', 'save')
+            .click('dismiss', 'remove')
+            .on( 'keypress', 'value', function(ev) {
+                if (ev.key == "Enter") {
+                    ev.preventDefault();
+                    this.save();
+                };
+            })
+            .onAttach( function () {
+                if (typeof this.onSave != 'function')
+                    throw 'onSave must be a function';
+                if (this.onClose && typeof this.onClose != 'function')
+                    throw 'onClose must be a function, if present';
+                this.element.value.attr('size', this.size);
+                setTimeout( () => this.element.value.focus(), 0 );
+            })
+            .onRemove( function() {
+                if (this.onClose)
+                    this.onClose();
+            });
+    </script>
+    <script>
+        'use strict';
+        const node = new jRna()
+            .htmlFrom( '#library .task' )
+            .args( 'title', 'parent', 'children', 'split', 'hours', 'done' )
+            .def( 'hours', NaN )
+            .init( 'childrenSet', () => new Set() )
+            .def( 'asJson', function() {
+                const children = [];
+                this.childrenSet.forEach( x => children.push( x.asJson() ) );
+                return {
+                    title: this.title,
+                    hours: this.hours,
+                    split: this.isSplit(),
+                    done:  this.isDone(),
+                    children
+                };
+            })
+            .output( 'display' )
+            .def( 'update', function(n) {
+                if (arguments.length && !this.isSplit())
+                    this.hours = Number(n);
+
+                if (this.isSplit()) {
+                    let hours = 0;
+                    this.childrenSet.forEach(
+                        item => { if (!item.isDone()) hours += item.hours } );
+                    // no children = unestimated
+                    this.hours = this.childrenSet.size > 0 ? hours : NaN;
+                };
+
+                this.display = Number.isNaN(this.hours)
+                    ? '???'
+                    : this.hours.toFixed(2);
+
+                if (this.parent)
+                    this.parent.update();
+            })
+            .output( 'title' )
+            .element( 'header' )
+            .element( 'content' )
+            .element( 'children', 'childrenBox' )
+            .stickyClick( 'edit', 'editLock', function() {
+                const me = this;
+                editor.appendTo( this.header, {
+                    value: me.title,
+                    onSave: text => {
+                        me.title = text;
+                    },
+                    onClose: () => { me.editLock = false; },
+                    comment: 'When is this done? Try to pick verifiable conditions, not actions.'
+                });
+            })
+            .element( 'toggle' )
+            .output( 'toggle', 'toggleLabel' )
+            .toggle( 'toggle', function() {
+                this.content.hide();
+                this.toggleLabel = '[+]';
+            }, function() {
+                this.content.show();
+                this.toggleLabel = '[-]';
+            })
+            .stickyState( 'isSplit', {
+                true: function() {
+                    this.toggle.show();
+                    this.content.show();
+                    this.element.split.hide();
+                },
+                false: function() {
+                    this.toggle.hide();
+                    this.content.hide();
+                    this.element.split.show();
+                }
+            })
+            .stickyClick( 'estimate', 'editLock', function() {
+                const me = this;
+                editor.appendTo( this.header, {
+                    size: 3,
+                    value: Number.isNaN(me.hours) ? '' : me.hours,
+                    onSave: function (hours) {
+                        // TODO check value
+                        me.isSplit(false);
+                        me.update(hours);
+                    },
+                    onClose: () => { me.editLock = false; }
+                });
+            })
+            .stickyClick( 'split', 'editLock', function() {
+                this.editLock = false; // free lock immediately
+                this.isSplit(true);
+                this.update();
+            })
+            .stickyState( 'isDone', {
+                true: function() {
+                    this.container.addClass( 'done' );
+                },
+                false: function() {
+                    this.container.removeClass( 'done' );
+                },
+            })
+            .on( 'change', 'done', function() {
+                this.isDone( this.element.done.prop('checked') );
+                if (this.parent)
+                    this.parent.update();
+            })
+            .click( 'remove', function() { this.remove() })
+            .onAttach( function(args) {
+                this.isSplit( !!args.split );
+                this.isDone( !!args.done );
+                this.hours = Number(args.hours) || NaN;
+                if (args.children) {
+                    for (let child of args.children)
+                        this.addChild(child);
+                };
+                if (!this.parent)
+                    this.element.remove.remove();
+                this.update();
+            })
+            .onRemove( function() {
+                if (this.parent) {
+                    this.parent.childrenSet.delete(this);
+                    this.parent.update();
+                };
+            });
+
+            node.def( 'addChild', function(input) {
+                const added = node.appendTo( this.childrenBox, {
+                    ...input,
+                    parent   : this
+                });
+                this.childrenSet.add(added);
+            });
+
+            node.stickyClick( 'add', 'editLock', function () {
+                const me = this;
+                editor.appendTo( this.childrenBox, {
+                    onSave: text => {
+                        me.addChild( { title: text } );
+                    },
+                    onClose: () => { me.editLock = false; }
+                });
+            } );
+
+            let root = node.appendTo( '#root' );
+    </script>
+    <script>
+        'use strict';
+        const manage = new jRna()
+            .click('download', function () {
+                jRna.download( 'task.json', JSON.stringify( root.asJson() ), 'application/json' )
+            })
+            .upload( 'upload' )
+            .on( 'change', 'upload', function() {
+                this.upload( result => {
+                    const newroot = node.spawn(JSON.parse(result.content));
+                    root.remove();
+                    root = newroot.appendTo('#root');
+                } );
+            })
+            .attach( '#root' );
+    </script>
+
+    <!-- describe how to use the page, if needed -->
+    <div id="usage">
+    </div>
+</body>
+</html>
