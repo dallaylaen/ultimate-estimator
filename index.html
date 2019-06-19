@@ -37,6 +37,22 @@
         .done .number {
             background-color: grey;
         }
+        .menu {
+            padding: 0.5em;
+        }
+        .menu a {
+            display: inline-block;
+            border: solid 1px;
+            color: #3366cc;
+            padding: 1px 1em 1px 1em;
+            margin: 3px;
+            text-decoration: none;
+        }
+        h1 {
+            color: grey;
+            padding: 1px;
+            margin: 1px;
+        }
     </style>
 </head>
 <body>
@@ -45,8 +61,10 @@
 
     <!-- initial node to attach to -->
     <div id="root">
-        <a href="#save" class="jrna-download control">save</a>
-        <a href="#load" class="jrna-upload control">load</a>
+        <div class=menu>
+            <a href="#save" class="jrna-download menu">save</a>
+            <a href="#load" class="jrna-upload menu">load</a>
+        </div>
     </div>
 
     <div id="library" style="display: none">
