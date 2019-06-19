@@ -1,5 +1,5 @@
 /*
- *  jRna.js - interactive stateful UI widgets
+ *  jrna.js - interactive stateful UI widgets
  */
 "use strict";
 
@@ -648,6 +648,22 @@ jRna.documentTitle = function(...args) {
         value: args.length
     });
     return me;
+};
+
+jRna.upload = function(options={}) {
+    const inputFile = window.document.createElement('input');
+    inputFile.setAttribute('type',   'file');
+    inputFile.setAttribute('style',  'display: none');
+    return new Promise( done => {
+        inputFile.oninput = function() {
+            jRna.uploadFile( this.files[0], options.type ).then( result => {
+                inputFile.remove();
+                done( result );
+            });
+        };
+        window.document.body.appendChild(inputFile); // required for firefox
+        inputFile.click();
+    });
 };
 
 jRna.uploadFile = function ( file, type ) {
