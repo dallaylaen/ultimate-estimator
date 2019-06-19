@@ -48,6 +48,12 @@
             margin: 3px;
             text-decoration: none;
         }
+        .talk {
+            border: solid 1px #3366cc;
+            padding: 0.5em;
+            margin: 0.5em;
+            color: #3366cc;
+        }
         h1 {
             color: grey;
             padding: 1px;
@@ -64,6 +70,29 @@
         <div class=menu>
             <a href="#save" class="jrna-download menu">save</a>
             <a href="#load" class="jrna-upload menu">load</a>
+            <a href="#help" class="jrna-helpshow menu">help</a>
+        </div>
+        <div class="jrna-help talk" style="display: none">
+            Welcome to the ultimate task estimation and breakdown tool.
+            <a href="#close" class="jrna-helphide control">[x]</a>
+            <br><br>
+            Describe when you consider a given task "done".
+            If you know how to do it in one go, use the <i>estimate</i> link.
+            If you don't, use <i>split</i>.
+            <br><br>
+            Use perfect verbs. <i>How do I make it work?</i>
+            is the wrong question;
+            <i>How do I <b>prove</b> it work<b>s</b>?</i> is the right one.
+            <br></br>
+            Good luck.
+        </div>
+        <div id="tree">
+        </div>
+        <hr>
+        <div id="footer" class="control">
+            <p><i>This project is in beta stage.</i></p>
+            <p><i>Contributions wanted at
+            <a href="https://github.com/dallaylaen/ultimate-estimator">https://github.com/dallaylaen/ultimate-estimator</a></i></p>
         </div>
     </div>
 
@@ -273,7 +302,7 @@
                 });
             } );
 
-            let root = node.appendTo( '#root' );
+            let root = node.appendTo( '#tree' );
     </script>
     <script>
         'use strict';
@@ -285,8 +314,16 @@
                 jRna.upload().then( result => {
                     const newroot = node.spawn(JSON.parse(result.content));
                     root.remove();
-                    root = newroot.appendTo('#root');
+                    root = newroot.appendTo('#tree');
                 } );
+            })
+            .element( 'help' )
+            .stickyClick( 'helpshow', 'helpLock', function() {
+                this.help.show();
+            })
+            .click( 'helphide', function() {
+                this.helpLock = false;
+                this.help.hide();
             })
             .attach( '#root' );
     </script>
