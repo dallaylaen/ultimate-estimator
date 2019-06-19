@@ -1,12 +1,9 @@
 <html>
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-    <title>The ultimate task estimator - jRna examples</title>
+    <title>The ultimate task estimator</title>
     <script lang="javascript" src="js/3rd-party/jquery.js"></script>
     <script lang="javascript" src="js/jrna.js"></script>
-    <script lang="javascript" id="description">
-        const descr = {"title":"The ultimate task estimator - jRna examples"}
-    </script>
     <script lang="javascript">
         window.onerror = function(msg) {
             document.getElementById("error").innerHTML += '<div>'+msg+'</div>';
@@ -44,12 +41,12 @@
 </head>
 <body>
     <div id="error" style="color: red"></div>
-    <h1>The ultimate task estimator - jRna examples</h1>
+    <h1>The ultimate task estimator</h1>
 
     <!-- initial node to attach to -->
     <div id="root">
-        <a href="#download" class="jrna-download">Download</a>
-        <input type="file" class="jrna-upload">
+        <a href="#save" class="jrna-download control">save</a>
+        <a href="#load" class="jrna-upload control">load</a>
     </div>
 
     <div id="library" style="display: none">
@@ -266,9 +263,8 @@
             .click('download', function () {
                 jRna.download( 'task.json', JSON.stringify( root.asJson() ), 'application/json' )
             })
-            .upload( 'upload' )
-            .on( 'change', 'upload', function() {
-                this.upload( result => {
+            .click( 'upload', function () {
+                jRna.upload().then( result => {
                     const newroot = node.spawn(JSON.parse(result.content));
                     root.remove();
                     root = newroot.appendTo('#root');
