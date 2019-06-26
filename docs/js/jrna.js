@@ -8,36 +8,36 @@ First of all, some macros for jsdoc because it's too boring to write it every ti
 
 @macro oneof
     one of {@link jRna#attach attach}, {@link jRna#appendTo appendTo},
-    or {@link jRna#spawn spawn}
+    or {@link jRna#instantiate instantiate}
 @end oneof
 
 @macro mutator name
-    @function $(name)
+    @function %(name)
     @memberOf jRna
     @instance
-    @returns {jRna} The object itself. Chainable
+    @returns {jRna} <tt>this</tt> (chainable)
 @end mutator
 
-@macro chainable
-    @returns {jRna} The object itself. Chainable
-@end chainable
-
 @macro id
-    @param {string} id - the jrna-prefixed class of the element to work on
+    @param {string} receptor
+    A jrna-prefixed class in the DOM
 @end id
 
-@macro xprop what
-    @param {string} name - the name of $(what) to create
-@end xprop
+@macro receptor
+    @param {string|Array} receptor
+    A jrna-prefixed class in the DOM
+    and the name of the corresponding property in the jRna instance.
+    Use a 2-element array if different names are needed.
+@end receptor
 
-@macro xpropid what
-    @param {string} [name] - the name of $(what) to create.
-    Defaults to the 'id' argument
-@end xpropid
-
-@macro callback arg
-    @param {function} callback($(arg)) - run this code with jRna instance as this
-@end callback
+@macro currycb name args when
+    @param {function|string|Array} %(name)
+    Run <tt>%(name)(%(args))</tt> %(when).
+    <tt>this</tt> is set to current <i>jRna instance</i>.
+    A method name may be used instead of function.
+    An Array may be used containing any of the above
+    plus some additional values to be prepended to the argument list.
+@end currycb
 
 */
 
@@ -74,7 +74,7 @@ function get_stack(n) {
 *   To actually become effectful, it must be instanciated with
 *   @oneof
 *       one of {@link jRna#attach attach}, {@link jRna#appendTo appendTo},
-*       or {@link jRna#spawn spawn}
+*       or {@link jRna#instantiate instantiate}
 *   @end oneof
 *   methods.
 *
@@ -82,30 +82,38 @@ function get_stack(n) {
 *   @this {jRna}
 */
 function jRna () {
-    this.origin = get_stack(2);
-    this.throw  = function(error) {
-        throw new Error( error + " - jRna@"+this.origin );
+    // `origin` is the place where `new jRna()` was called for given instance.
+    // `blame` throws error but also points out where the definition was.
+    // This idea was mostly stolen from Perl's Carp module.
+    const origin = this.origin = get_stack(2);
+    const blame  = function(error) {
+        throw new Error( error + " - jRna@"+origin );
     };
 
-    // const parseHTML = $.parseHTML || function() { ... }
+    // Use browser to parse HTML.
     const parseHTML = function(str) {
         const fakeHTML = window.document.createElement('div');
         fakeHTML.setAttribute( 'style', 'display: none' );
         fakeHTML.innerHTML = str;
         if (!fakeHTML.firstChild)
-            this.throw("Attempt to use empty HTML");
-        if (fakeHTML.firstChild != fakeHTML.lastChild) {
-            this.throw("Attempt to create multiple tag HTML");
+            blame("Attempt to use empty HTML");
+        if (fakeHTML.firstChild.nodeType !== 1) {
+            blame("Attempt to use non-element as HTML container");
+        }
+        if (fakeHTML.firstChild !== fakeHTML.lastChild) {
+            blame("Attempt to create multiple tag HTML");
         }
         return fakeHTML.firstChild;
     };
 
+    // lockName('foo') - prevent using the name again
+    // This is internal function
     this._known = {};
     for (let i of [ 'appendTo', 'container', 'element', 'id', 'onAttach', 'onRemove', 'remove' ])
         this._known[i] = true;
     this.lockName = function (name, shared) {
         if (this._known[name] && this._known[name] !== shared) {
-            this.throw( "Property name already in use: "+name );
+            blame( "Property name already in use: "+name );
         }
         this._known[name] = shared || true;
     };
@@ -118,16 +126,17 @@ function jRna () {
     *      @function html
     *      @memberOf jRna
     *      @instance
-    *      @returns {jRna} The object itself. Chainable
+    *      @returns {jRna} <tt>this</tt> (chainable)
     *  @end mutator
     *  @param {string} html - must contain exactly one root node
     */
     this.html = function( html ) {
-        if (html) {
-            const container = window.$( parseHTML( html ) );
-            this.checkElement(container, 'accept html() that is');
+        if (html !== undefined) {
+            const element = parseHTML( html );
+            this._master = element;
+        } else {
+            this._master = undefined;
         }
-        this._html = html || undefined;
         return this;
     };
 
@@ -139,13 +148,54 @@ function jRna () {
     *      @function htmlFrom
     *      @memberOf jRna
     *      @instance
-    *      @returns {jRna} The object itself. Chainable
+    *      @returns {jRna} <tt>this</tt> (chainable)
     *  @end mutator
     *  @param {string|jQuery} selector - where to search for the root element
     */
     this.htmlFrom = function(selector) {
         selector = this.checkElement(selector, "get HTML from");
-        this._html = selector[0].outerHTML;
+        this.html( selector[0].outerHTML );
+        return this;
+    };
+
+    const noArgs = {}
+    for (let i in this._known)
+        noArgs[i] = true;
+    const allowArgs = { id : true };
+    const assignArgs = { id : true };
+
+    /**
+    *  Add one allowed argument with fine-grained control for
+    *  @oneof
+    *      one of {@link jRna#attach attach}, {@link jRna#appendTo appendTo},
+    *      or {@link jRna#instantiate instantiate}
+    *  @end oneof
+    *
+    *  @mutator addArgument
+    *      @function addArgument
+    *      @memberOf jRna
+    *      @instance
+    *      @returns {jRna} <tt>this</tt> (chainable)
+    *  @end mutator
+    *  @param {string} name Name of the argument
+    *  @param {Object} spec
+    *  { assign: true | false } - whether to try assigning this argument
+    *  to eponymous property
+    */
+    this.addArgument = function( name, spec={} ) {
+        if (spec.forbidden) {
+            // special case
+            if (allowArgs[name])
+                blame( 'Forbidden argument name: '+name );
+            noArgs[name] = true;
+            return this;
+        }
+
+        if (noArgs[name])
+            blame( 'Forbidden argument name: '+name );
+        allowArgs [name] = true;
+        assignArgs[name] = spec.assign;
+        // TODO more fancy stuff
         return this;
     };
 
@@ -153,7 +203,7 @@ function jRna () {
     *  Specify one or more optional argument keys for
     *  @oneof
     *      one of {@link jRna#attach attach}, {@link jRna#appendTo appendTo},
-    *      or {@link jRna#spawn spawn}
+    *      or {@link jRna#instantiate instantiate}
     *  @end oneof
     *  methods.
     *  May be called more than once.
@@ -163,35 +213,10 @@ function jRna () {
     *      @function args
     *      @memberOf jRna
     *      @instance
-    *      @returns {jRna} The object itself. Chainable
+    *      @returns {jRna} <tt>this</tt> (chainable)
     *  @end mutator
     *  @param {...string} argumentName - list of allowed arguments
     */
-    // forbid 'special' arguments, expect for 'id'
-    // TODO v2.0 forbid overriding methods or r/o properties with args
-    const noArgs = {}
-    for (let i in this._known)
-        noArgs[i] = true;
-    const allowArgs = { id : true };
-    const assignArgs = { id : true };
-
-    this.addArgument = function( name, spec={} ) {
-        if (spec.forbidden) {
-            // special case
-            if (allowArgs[name])
-                this.throw( 'Forbidden argument name: '+name );
-            noArgs[name] = true;
-            return this;
-        }
-
-        if (noArgs[name])
-            this.throw( 'Forbidden argument name: '+name );
-        allowArgs [name] = true;
-        assignArgs[name] = spec.assign;
-        // TODO more fancy stuff
-        return this;
-    };
-
     this.args = function(...list) {
         // TODO think about required args & type checks
         for( let i of list )
@@ -199,14 +224,41 @@ function jRna () {
         return this;
     };
 
-    // perform action( instance, container.find(id) ) on instance creation
+    /**
+    *  Upon <i>binding</i>, locate element with receptor class
+    *  and execute callback on it and the newly created instance.
+    *
+    *  Please seriously consider sending a bug report if you ever need
+    *  to call this directly.
+    *
+    *  @mutator setup
+    *      @function setup
+    *      @memberOf jRna
+    *      @instance
+    *      @returns {jRna} <tt>this</tt> (chainable)
+    *  @end mutator
+    *  @id
+    *      @param {string} receptor
+    *      A jrna-prefixed class in the DOM
+    *  @end id
+    *  @param {function} action
+    *  Call action( instance, element ) while the bound jRna instance
+    *  is being created. Note <tt>this</tt> is <i>not</i> set.
+    */
     this._setup = [];
+    this._wanted = {};
     this.setup = function( id, action ) {
         this._setup.push( [id, action ] );
+        this._wanted[ jRna.prefix + id ] = id;
         return this;
     };
 
-    const curry = (function(item, spec) {
+    // unify callbacks:
+    // function => itself
+    // string   => instance method
+    // [ function|string, ...args ] => fucntion( args, ... ) // curry!
+    // otherwise throw
+    const curry = function(item, spec) {
         if (!Array.isArray(spec))
             spec = [ spec ];
         const [todo, ...preargs] = spec;
@@ -231,8 +283,8 @@ function jRna () {
             return todo.bind(item);
 
         // finally - don't know what user wants
-        this.throw( 'Unexpected callback argument' );
-    }).bind(this);
+        blame( 'Unexpected callback argument' );
+    };
 
     /**
     *    Create a writable property. Update will trigger setting the text
@@ -241,20 +293,18 @@ function jRna () {
     *        @function output
     *        @memberOf jRna
     *        @instance
-    *        @returns {jRna} The object itself. Chainable
+    *        @returns {jRna} <tt>this</tt> (chainable)
     *    @end mutator
-    *    @id
-    *        @param {string} id - the jrna-prefixed class of the element to work on
-    *    @end id
-    *    @xpropid property
-    *        @param {string} [name] - the name of property to create.
-    *        Defaults to the 'id' argument
-    *    @end xpropid
+    *    @receptor
+    *        @param {string|Array} receptor
+    *        A jrna-prefixed class in the DOM
+    *        and the name of the corresponding property in the jRna instance.
+    *        Use a 2-element array if different names are needed.
+    *    @end receptor
     */
 
-    this.output = function( id, name ) {
-        if (!name)
-            name = id;
+    this.output = function( receptor ) {
+        const [id, name] = jRna.parseId( receptor );
         this.lockName(name);
         return this.setup( id, function ( inst, element ) {
             let value;
@@ -274,23 +324,21 @@ function jRna () {
     *    Create a writable property.
     *    On update, the innerHTML of affected element will be set.
     *    No checks are made whatsoever.
-    *    @mutator output
-    *        @function output
+    *    @mutator rawOutput
+    *        @function rawOutput
     *        @memberOf jRna
     *        @instance
-    *        @returns {jRna} The object itself. Chainable
+    *        @returns {jRna} <tt>this</tt> (chainable)
     *    @end mutator
-    *    @id
-    *        @param {string} id - the jrna-prefixed class of the element to work on
-    *    @end id
-    *    @xpropid property
-    *        @param {string} [name] - the name of property to create.
-    *        Defaults to the 'id' argument
-    *    @end xpropid
+    *    @receptor
+    *        @param {string|Array} receptor
+    *        A jrna-prefixed class in the DOM
+    *        and the name of the corresponding property in the jRna instance.
+    *        Use a 2-element array if different names are needed.
+    *    @end receptor
     */
-    this.rawOutput = function( id, name ) {
-        if (!name)
-            name = id;
+    this.rawOutput = function( receptor ) {
+        const [id, name] = jRna.parseId( receptor );
         this.lockName(name);
         return this.setup( id, function ( inst, element ) {
             let value;
@@ -315,19 +363,17 @@ function jRna () {
     *        @function input
     *        @memberOf jRna
     *        @instance
-    *        @returns {jRna} The object itself. Chainable
+    *        @returns {jRna} <tt>this</tt> (chainable)
     *    @end mutator
-    *    @id
-    *        @param {string} id - the jrna-prefixed class of the element to work on
-    *    @end id
-    *    @xpropid property
-    *        @param {string} [name] - the name of property to create.
-    *        Defaults to the 'id' argument
-    *    @end xpropid
+    *    @receptor
+    *        @param {string|Array} receptor
+    *        A jrna-prefixed class in the DOM
+    *        and the name of the corresponding property in the jRna instance.
+    *        Use a 2-element array if different names are needed.
+    *    @end receptor
     */
-    this.input = function( id, name ) {
-        if (!name)
-            name = id;
+    this.input = function( receptor ) {
+        const [id, name] = jRna.parseId( receptor );
         this.lockName(name);
         return this.setup( id, function( inst, element ) {
             Object.defineProperty(inst, name, {
@@ -348,14 +394,19 @@ function jRna () {
     *       @function click
     *       @memberOf jRna
     *       @instance
-    *       @returns {jRna} The object itself. Chainable
+    *       @returns {jRna} <tt>this</tt> (chainable)
     *   @end mutator
-    *   @id
-    *       @param {string} id - the jrna-prefixed class of the element to work on
-    *   @end id
-    *   @callback
-    *       @param {function} callback() - run this code with jRna instance as this
-    *   @end callback
+    *
+    *   @param {string} id - the jrna-prefixed class of the element to work on
+    *
+    *   @currycb callback clickEvent "when the element is clicked"
+    *       @param {function|string|Array} callback
+    *       Run <tt>callback(clickEvent)</tt> when the element is clicked.
+    *       <tt>this</tt> is set to current <i>jRna instance</i>.
+    *       A method name may be used instead of function.
+    *       An Array may be used containing any of the above
+    *       plus some additional values to be prepended to the argument list.
+    *   @end currycb
     */
     this.click = function( id, cb ) {
         return this.setup( id, function( inst, element ) {
@@ -363,6 +414,36 @@ function jRna () {
             element.on( 'click', function (ev) { bound(ev); return false; } );
         } );
     };
+    /**
+    *   Alternate between two callbacks when element is clicked.
+    *
+    *   @mutator toggle
+    *       @function toggle
+    *       @memberOf jRna
+    *       @instance
+    *       @returns {jRna} <tt>this</tt> (chainable)
+    *   @end mutator
+    *   @id
+    *       @param {string} receptor
+    *       A jrna-prefixed class in the DOM
+    *   @end id
+    *   @currycb callbackOn clickEvent "on 1st, 3rd, etc clicks"
+    *       @param {function|string|Array} callbackOn
+    *       Run <tt>callbackOn(clickEvent)</tt> on 1st, 3rd, etc clicks.
+    *       <tt>this</tt> is set to current <i>jRna instance</i>.
+    *       A method name may be used instead of function.
+    *       An Array may be used containing any of the above
+    *       plus some additional values to be prepended to the argument list.
+    *   @end currycb
+    *   @currycb callbackOff clickEvent "on every second click"
+    *       @param {function|string|Array} callbackOff
+    *       Run <tt>callbackOff(clickEvent)</tt> on every second click.
+    *       <tt>this</tt> is set to current <i>jRna instance</i>.
+    *       A method name may be used instead of function.
+    *       An Array may be used containing any of the above
+    *       plus some additional values to be prepended to the argument list.
+    *   @end currycb
+    */
     this.toggle = function( id, cb_on, cb_off ) {
         return this.setup( id, function( inst, element ) {
             const bound_on = curry( inst, cb_on );
@@ -378,6 +459,31 @@ function jRna () {
             } );
         } );
     };
+
+    /**
+    *  Setup a sticky click handler. Once clicked, it will have no effect
+    *  until a "lock" property is reset to a false value.
+    *  @mutator stickyClick
+    *      @function stickyClick
+    *      @memberOf jRna
+    *      @instance
+    *      @returns {jRna} <tt>this</tt> (chainable)
+    *  @end mutator
+    *  @id
+    *      @param {string} receptor
+    *      A jrna-prefixed class in the DOM
+    *  @end id
+    *  @param {string} name
+    *  Boolean property that locks the click
+    *  @currycb  callback clickEvent " on click, provided that the lock property is false"
+    *      @param {function|string|Array} callback
+    *      Run <tt>callback(clickEvent)</tt>  on click, provided that the lock property is false.
+    *      <tt>this</tt> is set to current <i>jRna instance</i>.
+    *      A method name may be used instead of function.
+    *      An Array may be used containing any of the above
+    *      plus some additional values to be prepended to the argument list.
+    *  @end currycb
+    */
     this.stickyClick = function( id, name, cb ) {
         this.lockName( name, 'stickyClick' );
         return this.setup( id, function( inst, element ) {
@@ -391,24 +497,80 @@ function jRna () {
             } );
         } );
     };
-    this.element = function ( id, name ) {
-        if (!name)
-            name = id;
+    /**
+    *   Create an element shortcut in the jRna instance.
+    *   Use <tt>this.element.&lt;className&gt;</tt> instead.
+    *   @mutator element
+    *       @function element
+    *       @memberOf jRna
+    *       @instance
+    *       @returns {jRna} <tt>this</tt> (chainable)
+    *   @end mutator
+    *   @receptor
+    *       @param {string|Array} receptor
+    *       A jrna-prefixed class in the DOM
+    *       and the name of the corresponding property in the jRna instance.
+    *       Use a 2-element array if different names are needed.
+    *   @end receptor
+    */
+    this.element = function ( receptor ) {
+        const [id, name] = jRna.parseId( receptor );
         this.lockName(name);
         this.addArgument(name, { forbidden: 1 });
         return this.setup( id, function( inst, element ) {
             inst[name] = element;
         } );
     };
+    /**
+    *   @mutator on
+    *       @function on
+    *       @memberOf jRna
+    *       @instance
+    *       @returns {jRna} <tt>this</tt> (chainable)
+    *   @end mutator
+    *   @param {string} trigger
+    *   Event to listen to. See jQuery docs for supported event types.
+    *   @id
+    *       @param {string} receptor
+    *       A jrna-prefixed class in the DOM
+    *   @end id
+    *   @currycb callback event "whenever event is triggered on <tt>receptor</tt> element"
+    *       @param {function|string|Array} callback
+    *       Run <tt>callback(event)</tt> whenever event is triggered on <tt>receptor</tt> element.
+    *       <tt>this</tt> is set to current <i>jRna instance</i>.
+    *       A method name may be used instead of function.
+    *       An Array may be used containing any of the above
+    *       plus some additional values to be prepended to the argument list.
+    *   @end currycb
+    */
     this.on = function( trigger, id, cb ) {
         return this.setup(id, function(inst, element) {
             const bound = curry( inst, cb );
             element.on(trigger, bound);
         });
     };
-    this.upload = function( id, name, type ) {
-        if (!name)
-            name = id;
+    /**
+    *   Associate a <tt>&lg;input type="file"&gt;</tt>
+    *   with a file upload function that returns a promise.
+    *
+    *   Please consider using static <tt>jRna.upload</tt> instead.
+    *   @mutator upload
+    *       @function upload
+    *       @memberOf jRna
+    *       @instance
+    *       @returns {jRna} <tt>this</tt> (chainable)
+    *   @end mutator
+    *   @receptor
+    *       @param {string|Array} receptor
+    *       A jrna-prefixed class in the DOM
+    *       and the name of the corresponding property in the jRna instance.
+    *       Use a 2-element array if different names are needed.
+    *   @end receptor
+    *   @param {string} [type] Can be 'text' (default), 'raw', or 'url'.
+    *
+    */
+    this.upload = function( receptor, type ) {
+        const [id, name] = jRna.parseId( receptor );
         this.lockName(name);
         this.addArgument(name, { forbidden: 1 });
         return this.setup( id, function( inst, element ) {
@@ -422,12 +584,25 @@ function jRna () {
         } );
     };
 
+    /**
+    *  Define a property or fucntion. Any array or object will be shared
+    *  across all instances. See also <tt>init</tt>.
+    *
+    *  @mutator def
+    *      @function def
+    *      @memberOf jRna
+    *      @instance
+    *      @returns {jRna} <tt>this</tt> (chainable)
+    *  @end mutator
+    *  @param {string} name Name of the property
+    *  @param {...} initial Set <tt>name</tt> property to this value
+    */
     this._init = {};
-    this.def = function( name, action ) {
+    this.def = function( name, initial ) {
         this.lockName(name);
-        if (typeof action === 'function')
+        if (typeof initial === 'function')
             isMethod[name] = true;
-        this._init[name] = function() { return action; };
+        this._init[name] = function() { return initial; };
         return this;
     };
     this.init = function( name, action ) {
@@ -445,32 +620,11 @@ function jRna () {
 
     // A stupid state machine that allows to only enter every state once
     this.stickyState = function( name, action_hash, initial ) {
-        // TODO validate action_hash & initial values
-        const me = this;
-
-        if (typeof initial != 'undefined' && !action_hash[initial])
-            this.throw("Illegal initial state "+initial);
+        const runner = jRna.stickySM( action_hash, { origin: name + ' at '+origin, initial } );
 
         isMethod[name] = true;
         // must use init to avoid sharing state between instances
-        this.init( name, function() {
-            let state = initial;
-            return function(arg) {
-                // 0-arg => getter
-                if (typeof arg == 'undefined')
-                    return state;
-
-                if (arg != state) {
-                    const todo = action_hash[''+arg];
-                    if (!todo)
-                        me.throw('Illegal state switch for '+name+': '+state+'->'+arg);
-                    todo.bind(this)(state, arg); // (old, new)
-                    state = arg;
-                }
-                return this;
-            };
-        });
-        return this;
+        return this.init( name, () => runner.run() );
     };
 
     // callbacks!
@@ -492,22 +646,48 @@ function jRna () {
 
     this.checkElement = function(element, action="address") {
         // TODO extract the selector from $, too
-        if (!element)
-            this.throw( "Cannot "+action+" a null element");
+        if (element === undefined)
+            blame( "Cannot "+action+" a null element");
 
         let selector = '';
-        if (typeof element == 'string') {
+        if (typeof element === 'string') {
             selector = ' $('+element+')';
             element = window.$( element );
         }
         if (!(element instanceof window.$))
-            this.throw( "Cannot "+action+" a non-$ object" );
+            blame( "Cannot "+action+" a non-$ object" );
         if (!element.length)
-            this.throw( "Cannot "+action+" a missing element"+selector );
+            blame( "Cannot "+action+" a missing element"+selector );
         if ( element.length > 1)
-            this.throw( "Cannot "+action+" an ambiguous element"+selector );
+            blame( "Cannot "+action+" an ambiguous element"+selector );
         return element.first();
     };
+
+    function walkTree( root, cb ) {
+        cb(root);
+        for( let ptr = root.firstChild; ptr !== null; ptr = ptr.nextSibling)
+            if (ptr.nodeType === 1) // only Element's are invited
+                walkTree(ptr, cb);
+    }
+
+    function findClasses( root, wanted ) {
+        const found = {};
+
+        walkTree( root, elem => {
+            for ( let cls of elem.classList ) {
+                if( wanted[cls] === undefined ) continue;
+                if( found[cls] )
+                    throw new Error('Duplicate element with class '+cls);
+                found[cls] = elem;
+            }
+        });
+
+        for( let cls in wanted )
+            if (!found[cls])
+                blame('Failed to locate class '+cls);
+
+        return found;
+    }
 
     /**
     *
@@ -560,16 +740,13 @@ function jRna () {
         };
 
         // resolve all needed elements at once
+        const resolved = findClasses( container[0], this._wanted );
+        inst.element  = {};
+        for (let cls in resolved)
+            inst.element[ this._wanted[cls] ] = window.$( resolved[cls] );
+
         for (let action of meta._setup) {
-            const cls = jRna.prefix+action[0];
-            let all = container.find( '.'+cls );
-            // this is ugly! find() omits the container itself,
-            // but we may need it for the sake of minimalism
-            if (container.hasClass(cls))
-                all = container.add(all);
-            meta.checkElement(all, 'fulfill .'+cls+' with');
-            action[1](inst, all);
-            inst.element[action[0]] = all;
+            action[1](inst, inst.element[ action[0] ]);
         }
 
         // process arguments & initial values
@@ -582,7 +759,7 @@ function jRna () {
         for( let key in args ) {
             // TODO throw all of extra args, not just the first
             if (!allowArgs[key] )
-                meta.throw( "unknown argument "+key);
+                blame( "unknown argument "+key);
             if (!assignArgs[key])
                 continue;
             if (isMethod[key]) {
@@ -601,15 +778,14 @@ function jRna () {
     }; // end of this.attach
 
     this.appendTo = function( element, args ) {
-        return this.spawn(args).appendTo(element);
+        return this.instantiate(args).appendTo(element);
     };
 
-    this.spawn = function( args ) {
+    this.instantiate = function( args ) {
         // TODO this dies if >1 nodes, so move the check into html()
-        if (!this._html)
-            this.throw('Trying to spawn with an empty html()');
-        const container = window.$( parseHTML( this._html ) );
-        this.checkElement(container, 'spawn() while html() is');
+        if (!this._master)
+            blame('Trying to instantiate with an empty html()');
+        const container = window.$( this._master.cloneNode(true) );
         return this.attach( container, args );
     };
 }
@@ -731,6 +907,60 @@ jRna.backend = function(spec = {}) {
             xhr.send(stringify(args));
         } );
     };
+};
+
+// const switcheroo = jRna.stickySM( { state: onSwitch, ... }, ... ).run()
+// switcheroo(same_state); // does nothing
+// switcheroo(other_state); // executes respective onSwitch
+// switcheroo(); // returns current state
+jRna.stickySM = function( action_hash, args ) {
+    // TODO validate args
+    const origin = args.origin || '- jRna.stickySM@'+get_stack(2);
+
+    if (args.initial !== undefined && !action_hash[args.initial])
+        throw new Error("Illegal initial state: "+args.initial+' '+origin);
+
+    return {
+        run: function() {
+            // TODO this.run(initial_state)
+            let state = args.initial;
+
+            return function(arg) {
+                // 0-arg => getter
+                if (typeof arg === 'undefined')
+                    return state;
+
+                // console.trace('switch '+state+'->'+arg);
+
+                if (arg !== state) {
+                    const todo = action_hash[arg];
+                    if (!todo)
+                        throw new Error('Illegal state switch '+state+'->'+arg +' '+origin);
+                    todo.apply(this, [state, arg]); // (old, new)
+                    state = arg;
+                }
+                return this;
+            };
+        }
+    };
+};
+
+// usage:
+// const [ elementName, propertyName ] = jRna.parseId ( string | [ string, string ] )
+jRna.parseId = function(receptor, options={}) {
+    let out;
+    if (Array.isArray(receptor)) {
+        if (receptor.length > 2)
+            throw new Error( 'jRna receptor must be a string or 2-element array');
+        out = [].concat(receptor);
+    } else {
+        out = [ receptor ]
+    }
+    if (typeof out[0] !== 'string' && typeof out[0] !== 'number')
+        throw new Error( 'jRna receptor must be a string or 2-element array');
+    if (out[1] === undefined && !options.skipMissing)
+        out[1] = out[0];
+    return out;
 };
 
 if (typeof module === 'object' && typeof module.exports === 'object' ) {

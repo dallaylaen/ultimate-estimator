@@ -200,7 +200,7 @@
             .output( 'title' )
             .element( 'header' )
             .element( 'content' )
-            .element( 'children', 'childrenBox' )
+            .element( [ 'children', 'childrenBox' ] )
             .stickyClick( 'edit', 'editLock', function() {
                 const me = this;
                 editor.appendTo( this.header, {
@@ -213,7 +213,7 @@
                 });
             })
             .element( 'toggle' )
-            .output( 'toggle', 'toggleLabel' )
+            .output( [ 'toggle', 'toggleLabel' ] )
             .toggle( 'toggle', function() {
                 this.content.hide();
                 this.toggleLabel = '[+]';
