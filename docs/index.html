@@ -14,10 +14,10 @@
             padding-left: 1em;
             border-left: blue 1px solid;
         }
-        .jrna-title {
+        .title {
             font-weight: bold;
-            font-size: 110%;
             color: green;
+            text-decoration: none;
         }
         .control {
             text-decoration: none;
@@ -31,7 +31,7 @@
             color: #FFFFFF;
             font-weight: bold;
         }
-        .done .jrna-title {
+        .done .title {
             color: grey;
         }
         .done .number {
@@ -59,6 +59,10 @@
             padding: 1px;
             margin: 1px;
         }
+        .spacing {
+            display: inline-block;
+            width: 1.5em;
+        }
     </style>
 </head>
 <body>
@@ -74,11 +78,11 @@
         </div>
         <div class="jrna-help talk" style="display: none">
             Welcome to the ultimate task estimation and breakdown tool.
-            <a href="#close" class="jrna-helphide control">[x]</a>
             <br><br>
             Describe when you consider a given task "done".
-            If you know how to do it in one go, use the <i>estimate</i> link.
-            If you don't, use <i>split</i>.
+            If you know how to do it in one go, click on the estimate
+            to enter the number.
+            If you don't, use the <i>subtask</i> link.
             <br><br>
             Use perfect verbs. <i>How do I make it work?</i>
             is the wrong question;
@@ -99,19 +103,20 @@
     <div id="library" style="display: none">
         <div class="task">
             <div class="header jrna-header">
-                <a href="#" class="control jrna-toggle">[-]</a>
+                <div class="spacing">
+                    <a href="#" class="control jrna-toggle">[&minus;]</a>
+                </div>
                 <input type="checkbox" class="jrna-done">
-                <span class="number jrna-display">...</span>
-                <span class="jrna-title"></span>
-                <a href="#" class="control jrna-edit">[edit]</a>
-                <a href="#" class="control jrna-estimate">[estimate]</a>
-                <a href="#" class="control jrna-split">[split]</a>
+                <a href="#" class="jrna-estimate"><span class="number jrna-display">?..</span></a>
+                <a href="#" class="jrna-edit title"><span class="jrna-title">click to edit...</span></a>
+                <a href="#" class="control jrna-split">[subtask]</a>
                 <a href="#" class="control jrna-remove">[x]</a>
             </div>
             <div class="indent jrna-content">
                 <div class="jrna-children">
                 </div>
                 <div>
+                    <div class="spacing"></div>
                     <a class="control jrna-add" href="#">[add subtask...]</a>
                 </div>
             </div>
@@ -191,7 +196,7 @@
                 };
 
                 this.display = Number.isNaN(this.hours)
-                    ? '???'
+                    ? '?..'
                     : this.hours.toFixed(2);
 
                 if (this.parent)
@@ -213,13 +218,13 @@
                 });
             })
             .element( 'toggle' )
-            .output( [ 'toggle', 'toggleLabel' ] )
+            .rawOutput( [ 'toggle', 'toggleLabel' ] )
             .toggle( 'toggle', function() {
                 this.content.hide();
                 this.toggleLabel = '[+]';
             }, function() {
                 this.content.show();
-                this.toggleLabel = '[-]';
+                this.toggleLabel = '[&minus;]';
             })
             .stickyState( 'isSplit', {
                 true: function() {
@@ -318,11 +323,12 @@
                 } );
             })
             .element( 'help' )
-            .stickyClick( 'helpshow', 'helpLock', function() {
+            .output( 'helpshow' )
+            .toggle( 'helpshow', function() {
+                this.helpshow = 'hide help';
                 this.help.show();
-            })
-            .click( 'helphide', function() {
-                this.helpLock = false;
+            }, function() {
+                this.helpshow = 'help';
                 this.help.hide();
             })
             .attach( '#root' );
