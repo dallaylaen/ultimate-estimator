@@ -108,7 +108,7 @@
                 </div>
                 <input type="checkbox" class="jrna-done">
                 <a href="#" class="jrna-estimate"><span class="number jrna-display">?..</span></a>
-                <a href="#" class="jrna-edit title"><span class="jrna-title">click to edit...</span></a>
+                <a href="#" class="jrna-edit title"><span class="jrna-title">click to edit title...</span></a>
                 <a href="#" class="control jrna-split">[subtask]</a>
                 <a href="#" class="control jrna-remove">[x]</a>
             </div>
@@ -307,7 +307,7 @@
                 });
             } );
 
-            let root = node.appendTo( '#tree' );
+            let root = node.appendTo( '#tree', { split: true } );
     </script>
     <script>
         'use strict';
